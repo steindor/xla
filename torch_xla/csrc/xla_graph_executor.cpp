@@ -672,8 +672,7 @@ XLAGraphExecutor::ExecuteComputationWithBarrier(
         std::vector<runtime::ComputationClient::DataPtr> outputs =
             ShardingUtil::OutputHandler(
                 runtime::GetComputationClient()->ExecuteReplicated(
-                    *async->cached_computation->computation
-                         ->client_computation(),
+                    *async->cached_computation->computation,
                     device_arguments, devices, execute_options),
                 sharding_specs);
         results = WrapXlaData(outputs);
@@ -1011,8 +1010,7 @@ XLAGraphExecutor::ScheduleSyncTensorsGraph(
         std::vector<runtime::ComputationClient::DataPtr> outputs =
             ShardingUtil::OutputHandler(
                 runtime::GetComputationClient()->ExecuteReplicated(
-                    *async->cached_computation->computation
-                         ->client_computation(),
+                    *async->cached_computation->computation,
                     device_arguments, devices, execute_options),
                 sharding_specs, /*replicated_output=*/false);
         results = WrapXlaData(outputs);
@@ -1291,7 +1289,7 @@ XLAGraphExecutor::CompilationResult XLAGraphExecutor::Compile(
   return {/*device=*/coll.device,
           /*emitted_nodes=*/lowering_ctx.GetEmittedNodeCount(),
           /*computation=*/
-          std::make_shared<Computation>(std::move(computations.front())),
+          computations.front(),
           /*parameters_data=*/std::move(po_data->parameters_data),
           /*is_sharded=*/is_sharded};
 }

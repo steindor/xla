@@ -174,9 +174,7 @@ ptxla_cc_library(
     srcs = ["computation.cpp"],
     hdrs = ["computation.h"],
     deps = [
-        "//torch_xla/csrc/runtime",
-        "@org_tensorflow//tensorflow/compiler/xla/client:xla_builder",
-        "@org_tensorflow//tensorflow/compiler/xla/client:xla_computation",
+        "//torch_xla/csrc/runtime:computation_client",
     ],
 )
 

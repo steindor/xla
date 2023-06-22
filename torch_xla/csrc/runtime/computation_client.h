@@ -8,12 +8,20 @@
 #include <string>
 #include <vector>
 
+#include "torch_xla/csrc/runtime/compat_logging.h"
+
+#include <torch/csrc/lazy/backend/lowering_context.h>
+#include <torch/csrc/lazy/core/hash.h>
+#include <torch/csrc/lazy/core/shape.h>
+#include <torch/csrc/lazy/core/util.h>
+
 #include "absl/container/flat_hash_map.h"
 #include "absl/types/optional.h"
 #include "absl/types/span.h"
 #include "tensorflow/compiler/xla/client/xla_computation.h"
 #include "tensorflow/compiler/xla/literal_util.h"
 #include "tensorflow/compiler/xla/types.h"
+#include "tensorflow/compiler/xla/hlo/ir/hlo_module.h"
 #include "torch_xla/csrc/runtime/debug_macros.h"
 #include "torch_xla/csrc/runtime/metrics.h"
 #include "torch_xla/csrc/runtime/types.h"
@@ -58,8 +66,33 @@ class ComputationClient {
 
   using DataPtr = std::shared_ptr<Data>;
 
-  class Computation {
+  class Computation : public torch::lazy::Computation {
    public:
+    Computation(std::string name,
+                xla::XlaComputation computation)
+          : name_(name),
+            hash_(torch::lazy::MHash(
+              name,
+              computation.proto().SerializeAsString())),
+            computation_(std::move(computation)) {
+      program_shape_ = ConsumeValue(computation_.GetProgramShape());
+    }
+
+
+    Computation(std::string name, xla::XlaComputation computation,
+                torch::lazy::BackendDevice device)
+          : name_(name),
+            computation_(std::move(computation)),
+            devices_({device.toString()}),
+            hash_(torch::lazy::MHash(
+              name,
+              computation.proto().SerializeAsString())) {
+      program_shape_ = ConsumeValue(computation_.GetProgramShape());
+    }
+
+    // Computation(std::shared_ptr<runtime::ComputationClient::Computation>
+    //                 xla_client_computation);
+
     Computation(xla::XlaComputation computation,
                 xla::ProgramShape program_shape,
                 std::vector<std::string> devices)
@@ -68,7 +101,7 @@ class ComputationClient {
           devices_(std::move(devices)) {}
 
     Computation(xla::XlaComputation computation)
-        : computation_(std::move(computation)) {
+        : Computation("", std::move(computation)) {
       program_shape_ = ConsumeValue(computation_.GetProgramShape());
     }
 
@@ -79,6 +112,15 @@ class ComputationClient {
     }
 
     virtual ~Computation() {}
+
+    const std::string& name() const { return name_; }
+
+    std::string get_device_string() const {
+      // Assume that a xla_client_computation_ only contains one device for now.
+      // We need to update here when SPMD comes.
+      XLA_CHECK_EQ(devices().size(), 1);
+      return devices()[0];
+    }
 
     const xla::XlaComputation& computation() const {
       if (computation_moved_) {
@@ -101,13 +143,45 @@ class ComputationClient {
 
     const xla::ProgramShape& program_shape() const { return program_shape_; }
 
+    const torch::lazy::hash_t& hash() const { return hash_; }
+
+    int parameters_size() const override {
+      return program_shape().parameters_size();
+    }
+
+    const std::vector<torch::lazy::Shape>& parameter_shapes() const override {
+      // TODO: convert the program_shape().parameters()
+      // back to torch::lazy::Shape
+      return parameter_shapes_;
+    }
+
+    const std::vector<std::string>& parameter_names() const override {
+      return program_shape().parameter_names();
+    }
+
+    const torch::lazy::Shape& result_shape() const override {
+      return res_shape_;
+    }
+
     const std::vector<std::string>& devices() const { return devices_; }
+
+    const std::string to_string() const override {
+      xla::HloModuleConfig hlo_config(program_shape());
+      std::unique_ptr<xla::HloModule> module = ConsumeValue(
+          xla::HloModule::CreateFromProto(computation().proto(), hlo_config));
+      return module->ToString();
+    }
 
    private:
     xla::XlaComputation computation_;
     xla::ProgramShape program_shape_;
     std::vector<std::string> devices_;
     bool computation_moved_ = false;
+
+    torch::lazy::hash_t hash_;
+    std::string name_;
+    torch::lazy::Shape res_shape_;
+    std::vector<torch::lazy::Shape> parameter_shapes_;
   };
 
   using ComputationPtr = std::shared_ptr<Computation>;
