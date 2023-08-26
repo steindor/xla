@@ -375,4 +375,7 @@ def _mp_fn(index, flags):
 
 
 if __name__ == '__main__':
+
+print("Num cores: ", FLAGS.num_cores)
+    
   xmp.spawn(_mp_fn, args=(FLAGS,), nprocs=FLAGS.num_cores)
